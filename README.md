@@ -1,4 +1,4 @@
-# PGT
+# PlayGameTogether
 
 A web platform for finding teammates to play games with. Users create a profile, search for players by genre, free time and other criteria, chat with them in real time and receive notifications through a Telegram bot.
 
