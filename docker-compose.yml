@@ -1,0 +1,208 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: playgames_mongodb
+    restart: always
+    ports:
+      - "27018:27017"
+    environment:
+      MONGO_INITDB_DATABASE: playgames
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - playgames_network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Auth Microservice
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: playgames_auth_service
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - MONGO_URL=mongodb://mongodb:27017
+      - MONGO_DB_NAME=auth_service
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - playgames_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Profile Microservice
+  profile-service:
+    build:
+      context: ./profile-service
+      dockerfile: Dockerfile
+    container_name: playgames_profile_service
+    restart: always
+    ports:
+      - "3002:3002"
+    environment:
+      - PORT=3002
+      - MONGO_URL=mongodb://mongodb:27017
+      - MONGO_DB_NAME=profile_service
+      - AUTH_SERVICE_URL=http://auth-service:3001
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    networks:
+      - playgames_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Chat Microservice
+  chat-service:
+    build:
+      context: ./chat-service
+      dockerfile: Dockerfile
+    container_name: playgames_chat_service
+    restart: always
+    ports:
+      - "3003:3003"
+    environment:
+      - PORT=3003
+      - MONGO_URL=mongodb://mongodb:27017
+      - MONGO_DB_NAME=chat_service
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - playgames_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Matchmaking Microservice
+  matchmaking-service:
+    build:
+      context: ./matchmaking-service
+      dockerfile: Dockerfile
+    container_name: playgames_matchmaking_service
+    restart: always
+    ports:
+      - "3004:3004"
+    environment:
+      - PORT=3004
+      - MONGO_URL=mongodb://mongodb:27017
+      - MONGO_DB_NAME=matchmaking_service
+      - PROFILE_SERVICE_URL=http://profile-service:3002
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      profile-service:
+        condition: service_healthy
+    networks:
+      - playgames_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3004/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Notification Microservice
+  notification-service:
+    build:
+      context: ./notification-service
+      dockerfile: Dockerfile
+    container_name: playgames_notification_service
+    restart: always
+    ports:
+      - "3005:3005"
+    environment:
+      - PORT=3005
+      - MONGO_URL=mongodb://mongodb:27017
+      - MONGO_DB_NAME=notification_service
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - playgames_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3005/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # API Gateway (обновить зависимости)
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: playgames_api_gateway
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - PROFILE_SERVICE_URL=http://profile-service:3002
+      - CHAT_SERVICE_URL=http://chat-service:3003
+      - MATCHMAKING_SERVICE_URL=http://matchmaking-service:3004
+      - NOTIFICATION_SERVICE_URL=http://notification-service:3005
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      profile-service:
+        condition: service_healthy
+      chat-service:
+        condition: service_healthy
+      matchmaking-service:
+        condition: service_healthy
+      notification-service:
+        condition: service_healthy
+    networks:
+      - playgames_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: playgames_frontend
+    restart: always
+    ports:
+      - "8080:80"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    networks:
+      - playgames_network
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  playgames_network:
+    driver: bridge
